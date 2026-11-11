@@ -128,6 +128,32 @@ SELECT a.name, a.appid, CASE WHEN a.isactive THEN 'active' ELSE 'inactive' END,
        COALESCE(to_char(a.lastdeployeddate,'YYYY-MM-DD'),''),
        (SELECT COUNT(*) FROM "jenkins$sharedenv_app" se WHERE se."atm_main$appid"=a.id)
 FROM "atm_main$app" a ORDER BY a.name;
+\echo @@app_members
+SELECT a.name,
+       COUNT(DISTINCT mp."useradmin$platform_userid"),
+       COUNT(DISTINCT mp."useradmin$platform_userid") FILTER (WHERE m.isaccepted),
+       COUNT(DISTINCT mp."useradmin$platform_userid") FILTER (WHERE m.pendingaccess),
+       COUNT(DISTINCT mp."useradmin$platform_userid") FILTER (WHERE m.direct),
+       COUNT(DISTINCT mp."useradmin$platform_userid") FILTER (WHERE u.lastlogin >= current_date - 90)
+FROM "atm_main$app" a
+LEFT JOIN "atm_main$membership_app" ma ON ma."atm_main$appid"=a.id
+LEFT JOIN "atm_main$membership" m ON m.id=ma."atm_main$membershipid"
+LEFT JOIN "atm_main$membership_platform_user" mp ON mp."atm_main$membershipid"=m.id
+LEFT JOIN "system$user" u ON u.id=mp."useradmin$platform_userid"
+GROUP BY a.name ORDER BY a.name;
+\echo @@app_member_detail
+SELECT a.name, COALESCE(u.name,'(no platform user)'), COALESCE(r.name,''),
+       CASE WHEN m.direct THEN 'direct' ELSE 'inherited' END,
+       CASE WHEN m.isaccepted THEN 'accepted' WHEN m.pendingaccess THEN 'pending' ELSE 'invited' END,
+       COALESCE(to_char(u.lastlogin,'YYYY-MM-DD'),'never')
+FROM "atm_main$membership" m
+JOIN "atm_main$membership_app" ma ON ma."atm_main$membershipid"=m.id
+JOIN "atm_main$app" a ON a.id=ma."atm_main$appid"
+LEFT JOIN "atm_main$membership_platform_user" mp ON mp."atm_main$membershipid"=m.id
+LEFT JOIN "system$user" u ON u.id=mp."useradmin$platform_userid"
+LEFT JOIN "atm_main$membership_role" mr ON mr."atm_main$membershipid"=m.id
+LEFT JOIN "dynamicrole$role" r ON r.id=mr."dynamicrole$roleid"
+ORDER BY 1,2;
 \echo @@envs
 SELECT COALESCE(a.name,'(unlinked)'), e.displayname, e.internalname,
        CASE e.dtapmode WHEN 'D' THEN 'Development' WHEN 'T' THEN 'Test' WHEN 'A' THEN 'Acceptance' WHEN 'P' THEN 'Production' ELSE COALESCE(e.dtapmode,'') END,
@@ -192,6 +218,10 @@ report() {
     table "$WORK/login_trend.txt" "day,logins,distinct_users"
     hr "Apps"
     table "$WORK/apps.txt" "app,app_id,state,mx_version,created,last_deployed,environments"
+    hr "Users per app (atm_main\$membership)"
+    table "$WORK/app_members.txt" "app,users,accepted,pending,direct,active_last_90d"
+    hr "App members (user, role)"
+    table "$WORK/app_member_detail.txt" "app,user,role,access,status,last_login"
     hr "Environments"
     table "$WORK/envs.txt" "app,environment,env_id,mode,purpose,status,runtime,license,ready/replicas,last_start,created,url"
     hr "Groups"
